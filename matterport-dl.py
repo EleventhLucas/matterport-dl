@@ -486,9 +486,9 @@ async def downloadAssets(base, base_page_text):
     font_files = ["ibm-plex-sans-100", "ibm-plex-sans-100italic", "ibm-plex-sans-200", "ibm-plex-sans-200italic", "ibm-plex-sans-300", "ibm-plex-sans-300italic", "ibm-plex-sans-500", "ibm-plex-sans-500italic", "ibm-plex-sans-600", "ibm-plex-sans-600italic", "ibm-plex-sans-700", "ibm-plex-sans-700italic", "ibm-plex-sans-italic", "ibm-plex-sans-regular", "mp-font", "roboto-100", "roboto-100italic", "roboto-300", "roboto-300italic", "roboto-500", "roboto-500italic", "roboto-700", "roboto-700italic", "roboto-900", "roboto-900italic", "roboto-italic", "roboto-regular"]
 
     # extension assumed to be .png unless it is .svg or .jpg, for anything else place it in assets
-    image_files = ["360_placement_pin_mask", "chrome", "Desktop-help-play-button.svg", "Desktop-help-spacebar", "edge", "escape", "exterior", "exterior_hover", "firefox", "interior", "interior_hover", "matterport-logo-light.svg", "matterport-logo.svg", "mattertag-disc-128-free.v1", "mobile-help-play-button.svg", "nav_help_360", "nav_help_click_inside", "nav_help_gesture_drag", "nav_help_gesture_drag_two_finger", "nav_help_gesture_pinch", "nav_help_gesture_position", "nav_help_gesture_position_two_finger", "nav_help_gesture_tap", "nav_help_inside_key", "nav_help_keyboard_all", "nav_help_keyboard_left_right", "nav_help_keyboard_up_down", "nav_help_mouse_click", "nav_help_mouse_ctrl_click", "nav_help_mouse_drag_left", "nav_help_mouse_drag_right", "nav_help_mouse_position_left", "nav_help_mouse_position_right", "nav_help_mouse_zoom", "nav_help_tap_inside", "nav_help_zoom_keys", "NoteColor", "pinAnchor", "safari", "scope.svg", "showcase-password-background.jpg", "surface_grid_planar_256", "vert_arrows", "headset-quest-2", "tagColor", "matterport-app-icon.svg"]
+    image_files = ["360_placement_pin_mask", "atlas", "chrome", "Desktop-help-play-button.svg", "Desktop-help-spacebar", "edge", "escape", "exterior", "exterior_hover", "firefox", "interior", "interior_hover", "matterport-logo-light.svg", "matterport-logo.svg", "mattertag-disc-128-free.v1", "mobile-help-play-button.svg", "nav_help_360", "nav_help_click_inside", "nav_help_gesture_drag", "nav_help_gesture_drag_two_finger", "nav_help_gesture_pinch", "nav_help_gesture_position", "nav_help_gesture_position_two_finger", "nav_help_gesture_tap", "nav_help_inside_key", "nav_help_keyboard_all", "nav_help_keyboard_left_right", "nav_help_keyboard_up_down", "nav_help_mouse_click", "nav_help_mouse_ctrl_click", "nav_help_mouse_drag_left", "nav_help_mouse_drag_right", "nav_help_mouse_position_left", "nav_help_mouse_position_right", "nav_help_mouse_zoom", "nav_help_tap_inside", "nav_help_zoom_keys", "NoteColor", "pinAnchor", "safari", "scope.svg", "showcase-password-background.jpg", "surface_grid_planar_256", "vert_arrows", "headset-quest-2", "tagColor", "matterport-app-icon.svg"]
 
-    assets = ["js/browser-check.js", "css/showcase.css", "css/packages-nova-ui.css", "css/scene.css", "css/unsupported_browser.css", "cursors/grab.png", "cursors/grabbing.png", "cursors/zoom-in.png", "cursors/zoom-out.png", "locale/strings.json", "css/ws-blur.css", "css/core.css", "css/late.css"]
+    assets = ["js/browser-check.js", "css/showcase.css", "css/packages-nova-ui.css", "css/scene.css", "css/unsupported_browser.css", "cursors/grab.png", "cursors/grabbing.png", "cursors/zoom-in.png", "cursors/zoom-out.png", "locale/strings.json", "css/ws-blur.css", "css/core.css", "css/late.css", "images/favicons/favicon.ico"]
 
     # following seem no more: "css/split.css", "headset-cardboard", "headset-quest", "NoteIcon",  "puck_256_red", "tagbg", "tagmask", "roboto-700-42_0", "pinIconDefault",
 
@@ -643,7 +643,10 @@ async def downloadAssets(base, base_page_text):
             discoveredChunkIds: set[str] = set()
             for jsPath in glob.glob("js/*.js"):
                 with open(jsPath, "r", encoding="UTF-8") as f:
-                    discoveredChunkIds.update(re.findall(r"\.e\((\d{2,5})\)", f.read()))
+                    jsText = f.read()
+                    for chunkArg in re.findall(r"\.e\(([^)]*)\)", jsText):
+                        discoveredChunkIds.update(re.findall(r"\b\d{2,5}\b", chunkArg))
+                    discoveredChunkIds.update(re.findall(r":\[\d{2,6},(\d{2,5})\]", jsText))
             missingChunkIds = sorted(discoveredChunkIds - downloadedChunkIds, key=int)
             if not missingChunkIds:
                 break
@@ -759,8 +762,14 @@ async def downloadPlugins(pageid):
     with open("api/v1/plugins", "r", encoding="UTF-8") as f:
         pluginJson = json.loads(f.read())
     for plugin in pluginJson:
-        plugPath = f"showcase-sdk/plugins/published/{plugin['name']}/{plugin['currentVersion']}/plugin.json"
-        await downloadFile("PLUGIN", True, f"https://static.{BASE_MATTERPORT_DOMAIN}/{plugPath}", plugPath)
+        currentVersion = plugin["currentVersion"]
+        versions = {currentVersion}
+        baseVersion = re.sub(r"-\d+$", "", currentVersion)
+        if baseVersion != currentVersion and not plugin.get("versions", {}).get(baseVersion, {}).get("requiredPolicies"):
+            versions.add(baseVersion)
+        for version in sorted(versions):
+            plugPath = f"showcase-sdk/plugins/published/{plugin['name']}/{version}/plugin.json"
+            await downloadFile("PLUGIN", True, f"https://static.{BASE_MATTERPORT_DOMAIN}/{plugPath}", plugPath)
 
 
 async def downloadAttachments():
