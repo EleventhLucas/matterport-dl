@@ -578,17 +578,27 @@ async def downloadAssets(base, base_page_text):
         raise Exception("Unable to extract js files and css files from showcase runtime js file")
     groupDict = match.groupdict()
     jsNamedDict = extractJSDict("showcase-runtime.js: namedJSFiles", groupDict["namedJSFiles"])
-    jsKeyDict = extractJSDict("showcase-runtime.js: JSFileToKey", groupDict["JSFileToKey"])
+    # Matterport previously emitted chunk URLs as [name].[hash].js with a
+    # second chunk-id-to-hash dictionary. Newer runtimes may emit plain
+    # [name].js chunks, leaving no JSFileToKey dictionary to extract.
+    hasJSKeyDict = "{" in groupDict["JSFileToKey"]
+    jsKeyDict = extractJSDict("showcase-runtime.js: JSFileToKey", groupDict["JSFileToKey"]) if hasJSKeyDict else {}
     cssNamedDict = extractJSDict("showcase-runtime.js: namedCSSFiles", groupDict["namedCSSFiles"])
     cssKeyDict = extractJSDict("showcase-runtime.js: CSSFileToKey", groupDict["CSSFileToKey"])
 
-    for number, key in jsKeyDict.items():
-        name = number
-        if name in jsNamedDict:
-            name = jsNamedDict[name]
-        file = f"js/{name}.{key}.js"
-        typeDict[file] = "SHOWCASE_DISCOVERED_JS"
-        assets.append(file)
+    if hasJSKeyDict:
+        for number, key in jsKeyDict.items():
+            name = number
+            if name in jsNamedDict:
+                name = jsNamedDict[name]
+            file = f"js/{name}.{key}.js"
+            typeDict[file] = "SHOWCASE_DISCOVERED_JS"
+            assets.append(file)
+    else:
+        for number, name in jsNamedDict.items():
+            file = f"js/{name}.js"
+            typeDict[file] = "SHOWCASE_DISCOVERED_JS"
+            assets.append(file)
 
     for number, key in cssKeyDict.items():
         name = number
