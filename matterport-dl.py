@@ -21,6 +21,7 @@ import re
 import os
 import hashlib
 import platform
+import glob
 
 import shutil
 import sys
@@ -633,6 +634,29 @@ async def downloadAssets(base, base_page_text):
         shouldExist = True
         toDownload.append(AsyncDownloadItem(type, shouldExist, f"{base}{asset}", local_file))
     await AsyncArrayDownload(toDownload)
+    if not hasJSKeyDict:
+        # Newer Matterport runtimes use plain chunk ids for lazy-loaded JS.
+        # Named chunks are covered above; scan downloaded bundles for numeric
+        # webpack chunk loads and fetch those too.
+        downloadedChunkIds: set[str] = set(jsNamedDict.keys())
+        while True:
+            discoveredChunkIds: set[str] = set()
+            for jsPath in glob.glob("js/*.js"):
+                with open(jsPath, "r", encoding="UTF-8") as f:
+                    discoveredChunkIds.update(re.findall(r"\.e\((\d{2,5})\)", f.read()))
+            missingChunkIds = sorted(discoveredChunkIds - downloadedChunkIds, key=int)
+            if not missingChunkIds:
+                break
+            toDownload.clear()
+            for chunkId in missingChunkIds:
+                file = f"js/{chunkId}.js"
+                downloadedChunkIds.add(chunkId)
+                if os.path.exists(file):
+                    continue
+                toDownload.append(AsyncDownloadItem("SHOWCASE_DISCOVERED_JS", False, f"{base}{file}", file))
+            if not toDownload:
+                break
+            await AsyncArrayDownload(toDownload)
     if react_vendor_filename and os.path.exists(react_vendor_filename):
         reactCont = ""
         with open(react_vendor_filename, "r", encoding="UTF-8") as f:
