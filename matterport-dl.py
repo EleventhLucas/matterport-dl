@@ -878,12 +878,20 @@ CENTEX_VIEWER_TOOLS_STYLE = """
     html.centex-hide-ui #react-render-root,
     html.centex-hide-ui #react-overlay-root,
     html.centex-hide-ui .point-button-wrapper {
+      display: none !important;
+      visibility: hidden !important;
       opacity: 0 !important;
       pointer-events: none !important;
     }
 
     html.centex-capturing #centex-viewer-tools {
       display: none !important;
+    }
+
+    html.centex-hide-ui #canvas-container,
+    html.centex-hide-ui #canvas-container *,
+    html.centex-hide-ui canvas {
+      cursor: default !important;
     }
   </style>
   <!-- centex-viewer-tools:end -->
@@ -1036,8 +1044,7 @@ CENTEX_VIEWER_TOOLS_BODY = """
 
 
 def applyCentexViewerTools(content: str):
-    if "centex-viewer-tools:start" in content:
-        return content
+    content = re.sub(r"\n?<!-- centex-viewer-tools:start -->.*?<!-- centex-viewer-tools:end -->\n?", "\n", content, flags=re.DOTALL)
 
     if "</head>" in content:
         content = content.replace("</head>", f"{CENTEX_VIEWER_TOOLS_STYLE}\n</head>", 1)
@@ -1050,6 +1057,27 @@ def applyCentexViewerTools(content: str):
         content = f"{content}\n{CENTEX_VIEWER_TOOLS_BODY}"
 
     return content
+
+
+def patchCentexViewerRuntime(j: str):
+    j = j.replace("const t=this.checkRenderModes(),i=this.settingsData.tryGetSetting(g.f,!0);", 'const t=this.checkRenderModes(),i=!document.documentElement.classList.contains("centex-hide-ui")&&this.settingsData.tryGetSetting(g.f,!0);')
+    j = j.replace("S=this.settingsData.tryGetSetting(g.f,!0)&&m&&E", 'S=!document.documentElement.classList.contains("centex-hide-ui")&&this.settingsData.tryGetSetting(g.f,!0)&&m&&E')
+    j = j.replace("if(!(0,n.useMemo)((()=>(0,s.C8)()),[])||!i||0===t)return null;", 'if(document.documentElement.classList.contains("centex-hide-ui")||!(0,n.useMemo)((()=>(0,s.C8)()),[])||!i||0===t)return null;')
+    j = j.replace("const e=!this.disabled&&this.visibilityRules.reduce(((e,t)=>e&&t()),!0);this.cursorMesh.setVisible(e)", 'const e=!document.documentElement.classList.contains("centex-hide-ui")&&!this.disabled&&this.visibilityRules.reduce(((e,t)=>e&&t()),!0);this.cursorMesh.setVisible(e)')
+    return j
+
+
+def patchCentexViewerRuntimeChunks():
+    for path in glob.glob("js/*.js"):
+        try:
+            with open(path, "r", encoding="UTF-8") as f:
+                original = f.read()
+        except UnicodeDecodeError:
+            continue
+        patched = patchCentexViewerRuntime(original)
+        if patched != original:
+            with open(getModifiedName(path), "w", encoding="UTF-8") as f:
+                f.write(patched)
 
 
 def patchShowcase():
@@ -1066,10 +1094,10 @@ def patchShowcase():
     j = j.replace(f'e.get("https://static.{BASE_MATTERPORT_DOMAIN}/geoip/",{{responseType:"json",priority:n.ru.LOW}})', '{"country_code":"US","country_name":"united states","region":"CA","city":"los angeles"}')
     if CLA.getCommandLineArg(CommandLineArg.MANUAL_HOST_REPLACEMENT):
         j = j.replace(f"https://static.{BASE_MATTERPORT_DOMAIN}", "")
-    j = j.replace("S=this.settingsData.tryGetSetting(g.f,!0)&&m&&E", 'S=!document.documentElement.classList.contains("centex-hide-ui")&&this.settingsData.tryGetSetting(g.f,!0)&&m&&E')
-    j = j.replace("if(!(0,n.useMemo)((()=>(0,s.C8)()),[])||!i||0===t)return null;", 'if(document.documentElement.classList.contains("centex-hide-ui")||!(0,n.useMemo)((()=>(0,s.C8)()),[])||!i||0===t)return null;')
+    j = patchCentexViewerRuntime(j)
     with open(getModifiedName(MAIN_SHOWCASE_FILENAME), "w", encoding="UTF-8") as f:
         f.write(j)
+    patchCentexViewerRuntimeChunks()
 
 
 #    j = j.replace('"POST"','"GET"') #no post requests for external hosted
