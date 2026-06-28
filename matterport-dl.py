@@ -839,6 +839,219 @@ async def downloadMainAssets(pageid, accessurl):
 
 
 # Patch showcase.js to fix expiration issue
+CENTEX_VIEWER_TOOLS_STYLE = """
+  <!-- centex-viewer-tools:start -->
+  <style>
+    #centex-viewer-tools {
+      position: fixed;
+      top: 12px;
+      right: 12px;
+      z-index: 2147483647;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    #centex-viewer-tools button {
+      min-width: 92px;
+      height: 36px;
+      padding: 0 14px;
+      border: 1px solid rgba(255, 255, 255, 0.28);
+      border-radius: 4px;
+      background: rgba(17, 17, 17, 0.78);
+      color: #fff;
+      font: 600 13px/36px Roboto, Arial, sans-serif;
+      letter-spacing: 0;
+      cursor: pointer;
+      pointer-events: auto;
+      user-select: none;
+      backdrop-filter: blur(4px);
+    }
+
+    #centex-viewer-tools button:hover,
+    #centex-viewer-tools button:focus-visible {
+      background: rgba(17, 17, 17, 0.92);
+      border-color: rgba(255, 255, 255, 0.48);
+      outline: none;
+    }
+
+    html.centex-hide-ui #react-render-root,
+    html.centex-hide-ui #react-overlay-root,
+    html.centex-hide-ui .point-button-wrapper {
+      opacity: 0 !important;
+      pointer-events: none !important;
+    }
+
+    html.centex-capturing #centex-viewer-tools {
+      display: none !important;
+    }
+  </style>
+  <!-- centex-viewer-tools:end -->
+"""
+
+
+CENTEX_VIEWER_TOOLS_BODY = """
+<!-- centex-viewer-tools:start -->
+<div id="centex-viewer-tools">
+  <button id="centex-ui-toggle" type="button" aria-pressed="false">Hide UI</button>
+  <button id="centex-screenshot" type="button">Screenshot</button>
+</div>
+<script>
+  (function () {
+    if (window.__centexViewerToolsInstalled) {
+      return;
+    }
+    window.__centexViewerToolsInstalled = true;
+
+    var storageKey = "centex-hide-ui";
+    var root = document.documentElement;
+    var getContext = HTMLCanvasElement.prototype.getContext;
+
+    HTMLCanvasElement.prototype.getContext = function (type, options) {
+      if (type === "webgl" || type === "webgl2" || type === "experimental-webgl") {
+        var nextOptions = options && typeof options === "object" ? Object.assign({}, options) : {};
+        nextOptions.preserveDrawingBuffer = true;
+        return getContext.call(this, type, nextOptions);
+      }
+      return getContext.apply(this, arguments);
+    };
+
+    function getButton(id) {
+      return document.getElementById(id);
+    }
+
+    function setHidden(hidden, persist) {
+      var button = getButton("centex-ui-toggle");
+      root.classList.toggle("centex-hide-ui", hidden);
+      if (button) {
+        button.setAttribute("aria-pressed", hidden ? "true" : "false");
+        button.textContent = hidden ? "Show UI" : "Hide UI";
+      }
+      if (persist) {
+        try {
+          localStorage.setItem(storageKey, hidden ? "1" : "0");
+        } catch (error) {}
+      }
+      window.dispatchEvent(new CustomEvent("centex-hide-ui-change", { detail: { hidden: hidden } }));
+    }
+
+    function nextFrame() {
+      return new Promise(function (resolve) {
+        requestAnimationFrame(function () {
+          requestAnimationFrame(resolve);
+        });
+      });
+    }
+
+    function downloadBlob(blob) {
+      var link = document.createElement("a");
+      var stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      link.href = URL.createObjectURL(blob);
+      link.download = "matterport-render-" + stamp + ".png";
+      document.body.appendChild(link);
+      link.click();
+      window.setTimeout(function () {
+        URL.revokeObjectURL(link.href);
+        link.remove();
+      }, 1000);
+    }
+
+    async function captureScreenshot() {
+      var screenshotButton = getButton("centex-screenshot");
+      var wasHidden = root.classList.contains("centex-hide-ui");
+      var canvas = document.querySelector("#canvas-container canvas") || document.querySelector("canvas");
+      if (!canvas) {
+        window.alert("No render canvas is available yet.");
+        return;
+      }
+
+      if (screenshotButton) {
+        screenshotButton.disabled = true;
+        screenshotButton.textContent = "Saving";
+      }
+      root.classList.add("centex-capturing");
+      setHidden(true, false);
+
+      try {
+        await nextFrame();
+        await new Promise(function (resolve) {
+          window.setTimeout(resolve, 120);
+        });
+        await nextFrame();
+        canvas.toBlob(function (blob) {
+          if (!blob) {
+            window.alert("Screenshot failed. Try again after the scene finishes rendering.");
+            return;
+          }
+          downloadBlob(blob);
+        }, "image/png");
+      } catch (error) {
+        window.alert("Screenshot failed: " + error.message);
+      } finally {
+        root.classList.remove("centex-capturing");
+        setHidden(wasHidden, false);
+        if (screenshotButton) {
+          screenshotButton.disabled = false;
+          screenshotButton.textContent = "Screenshot";
+        }
+      }
+    }
+
+    function initControls() {
+      var toggleButton = getButton("centex-ui-toggle");
+      var screenshotButton = getButton("centex-screenshot");
+      if (toggleButton) {
+        toggleButton.addEventListener("click", function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          setHidden(!root.classList.contains("centex-hide-ui"), true);
+        });
+        toggleButton.addEventListener("pointerdown", function (event) {
+          event.stopPropagation();
+        });
+      }
+      if (screenshotButton) {
+        screenshotButton.addEventListener("click", function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          captureScreenshot();
+        });
+        screenshotButton.addEventListener("pointerdown", function (event) {
+          event.stopPropagation();
+        });
+      }
+
+      var initial = false;
+      try {
+        initial = localStorage.getItem(storageKey) === "1";
+      } catch (error) {}
+      setHidden(initial, false);
+    }
+
+    initControls();
+  })();
+</script>
+<!-- centex-viewer-tools:end -->
+"""
+
+
+def applyCentexViewerTools(content: str):
+    if "centex-viewer-tools:start" in content:
+        return content
+
+    if "</head>" in content:
+        content = content.replace("</head>", f"{CENTEX_VIEWER_TOOLS_STYLE}\n</head>", 1)
+    else:
+        content = f"{CENTEX_VIEWER_TOOLS_STYLE}\n{content}"
+
+    if "</body>" in content:
+        content = content.replace("</body>", f"{CENTEX_VIEWER_TOOLS_BODY}\n</body>", 1)
+    else:
+        content = f"{content}\n{CENTEX_VIEWER_TOOLS_BODY}"
+
+    return content
+
+
 def patchShowcase():
     global BASE_MATTERPORT_DOMAIN
     with open(MAIN_SHOWCASE_FILENAME, "r", encoding="UTF-8") as f:
@@ -853,6 +1066,8 @@ def patchShowcase():
     j = j.replace(f'e.get("https://static.{BASE_MATTERPORT_DOMAIN}/geoip/",{{responseType:"json",priority:n.ru.LOW}})', '{"country_code":"US","country_name":"united states","region":"CA","city":"los angeles"}')
     if CLA.getCommandLineArg(CommandLineArg.MANUAL_HOST_REPLACEMENT):
         j = j.replace(f"https://static.{BASE_MATTERPORT_DOMAIN}", "")
+    j = j.replace("S=this.settingsData.tryGetSetting(g.f,!0)&&m&&E", 'S=!document.documentElement.classList.contains("centex-hide-ui")&&this.settingsData.tryGetSetting(g.f,!0)&&m&&E')
+    j = j.replace("if(!(0,n.useMemo)((()=>(0,s.C8)()),[])||!i||0===t)return null;", 'if(document.documentElement.classList.contains("centex-hide-ui")||!(0,n.useMemo)((()=>(0,s.C8)()),[])||!i||0===t)return null;')
     with open(getModifiedName(MAIN_SHOWCASE_FILENAME), "w", encoding="UTF-8") as f:
         f.write(j)
 
@@ -974,6 +1189,7 @@ async def downloadCapture(pageid):
     content = validUntilFix(content)
     content = content.replace("<head>", f"<head><script>{injectedjs}</script>{proxyAdd}")
     content = content.replace('from "https://static.matterport.com', 'from ".')  # fix the direct code import they added
+    content = applyCentexViewerTools(content)
     with open(getModifiedName("index.html"), "w", encoding="UTF-8") as f:
         f.write(content)
 
